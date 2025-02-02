@@ -1,0 +1,22 @@
+name: Build & Test Matrioska OS
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+      
+      - name: Setup Environment
+        run: |
+          sudo apt update && sudo apt install build-essential
+      
+      - name: Run Tests
+        run: |
+          make test
