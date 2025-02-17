@@ -31,33 +31,84 @@ echo -e "${GREEN}✅ Running on $SYSTEM${NC}"
 
 # Function to install dependencies
 install_dependencies() {
-    echo -e "${YELLOW}🔄 Checking and installing missing dependencies...${NC}"
-    DEPS=("nmap" "arp-scan" "hcitool" "tcpdump" "aircrack-ng" "iwlist" "masscan" "bettercap" "hydra" "metasploit-framework" "jq")
+# Check if brew is installed, if not install it
+if ! command -v brew &>/dev/null; then
+    echo -e "${YELLOW}⚠️ Homebrew not found! Installing Homebrew...${NC}"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    export PATH="/opt/homebrew/bin:$PATH"  # Ensure brew is in path for Apple Silicon Macs
+fi
 
-    for dep in "${DEPS[@]}"; do
-        if ! command -v $dep &> /dev/null; then
-            echo -e "${CYAN}📦 Installing: $dep${NC}"
-            sudo $PKG_MANAGER install -y $dep
-        else
-            echo -e "${GREEN}✅ $dep is already installed${NC}"
-        fi
-    done
+# Now proceed with dependency installation
+echo -e "${YELLOW}🔄 Installing missing dependencies...${NC}"
+DEPS=("nmap" "arp-scan" "hcitool" "tcpdump" "aircrack-ng" "iwlist" "masscan" "bettercap" "hydra" "metasploit-framework")
+
+for dep in "${DEPS[@]}"; do
+    if ! command -v $dep &>/dev/null; then
+        echo -e "${CYAN}📦 Installing: $dep${NC}"
+        brew install $dep
+    else
+        echo -e "${GREEN}✅ $dep is already installed${NC}"
+    fi
+done
 }
 
 install_dependencies
 
 # Function to get active network interfaces
 get_interfaces() {
-    ip -o link show | awk -F': ' '{print $2}' | grep -v "lo"
+    if [[ "$SYSTEM" == "Linux" ]]; then
+        ip -o link show | awk -F': ' '{print $2}' | grep -v "lo"
+    elif [[ "$SYSTEM" == "macOS" ]]; then
+        networksetup -listallhardwareports | awk '/Device/ {print $2}'
+    fi
 }
 
-# Full OEM list for urban surveillance and IoT
-OEM_LIST="Hikvision|Dahua|Axis|Bosch|Samsung|Sony|Panasonic|Cisco|Uniview|Vivotek|Hanwha Techwin|Mobotix|Pelco|Flir|Avigilon|Genetec|Milestone|Arecont Vision|Honeywell|Qognify|Tyco Security|D-Link|Ubiquiti|TP-Link|Netgear|EZVIZ|Reolink"
+# Function to check and enable network interfaces
+enable_interfaces() {
+    for iface in $(get_interfaces); do
+        status=$(ip link show "$iface" | grep -o "UP")
+        if [[ -z "$status" ]]; then
+            echo -e "${YELLOW}🛑 Interface $iface is disabled. Enable? (yes/no)${NC}"
+            read -r enable_choice
+            if [[ "$enable_choice" == "yes" ]]; then
+                sudo ip link set "$iface" up
+                echo -e "${GREEN}✅ $iface enabled.${NC}"
+            else
+                echo -e "${CYAN}⚠️ Skipping $iface.${NC}"
+            fi
+        fi
+    done
+}
+
+enable_interfaces
+
+# Function to classify local network environment
+classify_environment() {
+    echo -e "${CYAN}🔍 Detecting local network environment...${NC}"
+    gateway_mac=$(ip route | grep default | awk '{print $3}' | xargs arp -n | awk '{print $3}')
+    
+    if [[ "$gateway_mac" =~ ^(00:1A:2B|DC:A6:32) ]]; then
+        echo -e "${GREEN}🏠 Home Network Detected${NC}"
+    elif [[ "$gateway_mac" =~ ^(00:50:56|F8:35:DD) ]]; then
+        echo -e "${YELLOW}🏢 Corporate Network Detected${NC}"
+    elif [[ "$gateway_mac" =~ ^(AA:BB:CC|DD:EE:FF) ]]; then
+        echo -e "${RED}📶 Public Wi-Fi Detected${NC}"
+    else
+        echo -e "${CYAN}⚙️ Industrial IoT Network Detected${NC}"
+    fi
+}
+
+classify_environment
 
 # Function to scan network
 scan_network() {
     local iface=$1
-    local subnet=$(ip -4 addr show "$iface" | grep -oP '(?<=inet\s)\d+(\.\d+){3}/\d+')
+    if [[ "$SYSTEM" == "Linux" ]]; then
+        local subnet=$(ip -4 addr show "$iface" | grep -oP '(?<=inet\s)\d+(\.\d+){3}/\d+')
+    elif [[ "$SYSTEM" == "macOS" ]]; then
+        local subnet=$(ifconfig "$iface" | grep 'inet ' | awk '{print $2}' | head -n 1)
+    fi
+
 
     if [ -z "$subnet" ]; then
         echo -e "${YELLOW}⚠️ No active IP found on $iface, skipping...${NC}"
@@ -65,22 +116,10 @@ scan_network() {
     fi
 
     echo -e "${GREEN}📡 Scanning subnet: $subnet on $iface${NC}"
-    sudo nmap -sS -p 80,443,554,8000-9000,22,23,161,8080,37777 --open -T4 "$subnet" -oG - | grep "Up" | awk '{print $2}'
+    sudo nmap -sS -p 22,23,80,443,554,8080,37777,8000-9000,161 --open -T4 "$subnet" -oG - | grep "Up" | awk '{print $2}'
 }
 
-# Function to scan Wi-Fi for IoT devices
-scan_wifi() {
-    echo -e "${GREEN}📶 Scanning Wi-Fi for connected IoT devices...${NC}"
-    sudo arp-scan --localnet | grep -E "$OEM_LIST" | awk '{print $1, $2, $3}'
-}
-
-# Function to scan Bluetooth devices
-scan_bluetooth() {
-    echo -e "${GREEN}🔵 Scanning Bluetooth for IoT & Smart Devices...${NC}"
-    hcitool scan | grep -E "$OEM_LIST" || echo -e "${RED}⚠️ No Bluetooth devices found.${NC}"
-}
-
-# Function to build/update exploit database
+# Function to update exploit database
 update_exploit_db() {
     echo -e "${CYAN}🔄 Updating Exploit Database...${NC}"
     
@@ -88,7 +127,6 @@ update_exploit_db() {
 
     for src in "${EXPLOIT_SOURCES[@]}"; do
         echo -e "${YELLOW}📡 Fetching exploits from: $src...${NC}"
-        # Simulated Fetching - Replace with actual API calls if needed
         curl -s "$src" | grep -oP "CVE-[0-9]{4}-[0-9]{4,}" | while read -r CVE; do
             echo -e "${GREEN}💣 Found Exploit: $CVE${NC}"
             echo "{ \"name\": \"$CVE\", \"target\": \"Unknown\", \"command\": \"msfconsole -q -x 'search $CVE; use exploit/$CVE; run'\" }," >> "$EXPLOIT_DB"
@@ -136,8 +174,6 @@ while true; do
             for iface in $(get_interfaces); do
                 scan_network "$iface"
             done > detected_devices.txt
-            scan_wifi >> detected_devices.txt
-            scan_bluetooth >> detected_devices.txt
             ;;
         2)
             update_exploit_db

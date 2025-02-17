@@ -1,0 +1,8 @@
+[1;33m⚠️ No active IP found on en4, skipping...[0m
+[1;33m⚠️ No active IP found on en5, skipping...[0m
+[1;33m⚠️ No active IP found on en6, skipping...[0m
+[1;33m⚠️ No active IP found on bridge0, skipping...[0m
+[0;32m📡 Scanning subnet: 192.168.1.12 on en0[0m
+[1;33m⚠️ No active IP found on en1, skipping...[0m
+[1;33m⚠️ No active IP found on en2, skipping...[0m
+[1;33m⚠️ No active IP found on en3, skipping...[0m
